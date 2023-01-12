@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "{96D65CB0-4ECA-DE82-C189-1DA4B1A84AB8}",
+	"Category": "",
+	"Description": "",
+	"Modules": [
+		{
+			"Name": "NBodySim",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"Engine"
+			]
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "ModelingToolsEditorMode",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		}
+	]
+}
