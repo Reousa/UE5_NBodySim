@@ -1,16 +1,16 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 
-#include "NBodySim/Public/Core/NBodySimGameModeBase.h"
-
-#include "NBodySimulationSubsystem.h"
+#include "Core/Framework/NBodySimGameModeBase.h"
+#include "Game/NBodySimulationSubsystem.h"
 
 
 void ANBodySimGameModeBase::BeginPlay()
 {
 	Super::BeginPlay();
 	const TObjectPtr<UNBodySimulationSubsystem> NBodySubsystem = GetWorld()->GetSubsystem<UNBodySimulationSubsystem>();
-	NBodySubsystem->StartSimulation(NumStaringBodies, DefaultBodyClass);
+	NBodySubsystem->InitializeDefaults(DefaultRenderer, NumStaringBodies, AccuracyCoefficient, MinimumBodyMass, MaximumBodyMass, bShouldAutoLoad);
+	NBodySubsystem->StartSimulation();
 }
 
 APawn* ANBodySimGameModeBase::SpawnDefaultPawnFor_Implementation(AController* NewPlayer, AActor* StartSpot)
