@@ -178,6 +178,7 @@ void UNBodySimulationSubsystem::UpdateRenderer()
 
 	UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector(NiagaraSystem, FName("ParticleData"),
 	                                                                 RenderDataArr);
+
 }
 
 // @TODO: This needs cleanup
@@ -190,9 +191,9 @@ void UNBodySimulationSubsystem::SimulateOneTick(const float DeltaTime)
 	{
 		UE_LOG(LogTemp, Display, TEXT("Spawning num bodies: %d"), NumToSpawnNextTick);
 		AddBodies(NumToSpawnNextTick);
-		NumToSpawnNextTick = 0;
 		NiagaraSystem->ResetSystem();
-		// NiagaraSystem->Activate(true);
+
+		NumToSpawnNextTick = 0;
 	}
 
 	// Rerun the tree,
@@ -303,9 +304,8 @@ void UNBodySimulationSubsystem::CalculateBodyVelocity(const float DeltaTime, FBo
 	if (!bIsSameBody)
 		if (RootNode.IsSingleton())
 		{
-			// DistanceSquared * mass / DistanceCubed
 			const FVector2f Dist = RootNode.BodyDescriptor.Location - Body.Location;
-			const auto Force = Dist * RootNode.BodyDescriptor.Mass / Dist.SquaredLength();
+			const auto Force = Dist * (RootNode.BodyDescriptor.Mass / Dist.SquaredLength());
 
 			Body.Velocity += Force;
 			++Body.SimCost;
@@ -317,10 +317,10 @@ void UNBodySimulationSubsystem::CalculateBodyVelocity(const float DeltaTime, FBo
 			const float DistanceToNode = (RootNode.BodyDescriptor.Location - Body.Location).Length();
 			const float AccuracyFactor = RootNode.NodeBounds.Length() / DistanceToNode;
 
-			if (AccuracyFactor < 1)
+			if (AccuracyFactor < AccuracyCoefficient)
 			{
 				const FVector2f Dist = RootNode.BodyDescriptor.Location - Body.Location;
-				const auto Force = Dist * RootNode.BodyDescriptor.Mass / Dist.SquaredLength();
+				const auto Force = Dist * (RootNode.BodyDescriptor.Mass / Dist.SquaredLength());
 
 				Body.Velocity += Force;
 				++Body.SimCost;
@@ -330,6 +330,7 @@ void UNBodySimulationSubsystem::CalculateBodyVelocity(const float DeltaTime, FBo
 				// loop inner nodes
 				for (const FQuadTreeNode& Node : RootNode)
 					CalculateBodyVelocity(DeltaTime, Body, Node);
+				
 			}
 		}
 }

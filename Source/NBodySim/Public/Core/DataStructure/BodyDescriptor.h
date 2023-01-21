@@ -38,6 +38,6 @@ public:
 		WarpWithinBounds(Vec.X, Vec.Y, Vec.Z, Vec.W);
 	} 
 
-	FORCEINLINE bool operator==(const FBodyDescriptor& Other) const { return Other.Location == Location; }
+	FORCEINLINE bool operator==(const FBodyDescriptor& Other) const { return Other.Location == Location && Other.Mass == Mass; }
 	FORCEINLINE bool operator!=(const FBodyDescriptor& Other) const { return !(*this==Other); }
 };

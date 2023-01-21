@@ -32,8 +32,8 @@ public:
 			Index(Index),
 			ParentNode(ParentNode)
 		{
-			checkSlow(ParentNode != nullptr);
-			checkSlow(ParentNode->IsCluster());
+			check(ParentNode != nullptr);
+			check(ParentNode->IsCluster());
 		}
 
 	public:

@@ -9,8 +9,11 @@ class FQuadTree
 {
 private:
 	TArray<FQuadTreeNode> InternalNodesArr;
-	// FCriticalSection Lock;
-	// FScopeLock ScopeLock(&Lock);
+	
+	// If node bounds length is less than this, no new leaves will be created.
+	// When inserting, this is also used to detect whether we have any leaves left or not.
+	const float MinNodeSize = 10.f;
+
 
 public:
 	/**
@@ -89,8 +92,11 @@ inline bool FQuadTree::InsertInternal(FQuadTreeNode& Node, const FBodyDescriptor
 				// Update total mass
 				Node.BodyDescriptor.Mass = TotalMass;
 
-				// We don't have collision detection yet, so just in case two bodies overlap, we ignore one of them.
+				// Given we can have many bodies in the same spot, we'll opt not to create extra nodes below a certain size
 				// We're adding their mass to this node's pseudo body descriptor so they'll still be calculated for other bodies.
+				if(Node.NodeBounds.Length() <= MinNodeSize)
+					return true;
+				
 				return InsertInternal(Node.GetLeaf(QuadLocation), Body);
 			}
 		}
@@ -112,8 +118,7 @@ inline bool FQuadTree::InsertInternal(FQuadTreeNode& Node, const FBodyDescriptor
 
 			const bool bHasInsertedNewBody = InsertInternal(Node, Body);
 			const bool bHasInsertedExistingBody = InsertInternal(Node, ExistingBody);
-
-			checkSlow(bHasInsertedExistingBody && bHasInsertedNewBody)
+			
 			return bHasInsertedExistingBody && bHasInsertedNewBody;
 		}
 	}
@@ -126,7 +131,7 @@ inline FQuadTreeNode& FQuadTree::GetOrCreateNewNode(const FQuadrantBounds& Bound
 	return InternalNodesArr[Index];
 }
 
-
+// @TODO: Cleanup
 inline FBodyDescriptor FQuadTree::MakeClusterNode(FQuadTreeNode& Node)
 {
 	// Create and insert a new node in the internal array for each quadrant
