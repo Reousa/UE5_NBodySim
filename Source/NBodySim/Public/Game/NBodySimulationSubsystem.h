@@ -9,8 +9,7 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "Camera/CameraActor.h"
 #include "Core/DataStructure/QuadrantBounds.h"
-#include "Core/DataStructure/QuadTree.h"
-#include "Core/Framework/NBodySimGameModeBase.h"
+#include "Core/DataStructure/BarnesHutTree.h"
 
 #include "NBodySimulationSubsystem.generated.h"
 
@@ -39,7 +38,7 @@ protected:
 	// Array containing (X, Y): Position & (Z): Mass
 	TArray<FVector> RenderDataArr;	
 	
-	TUniquePtr<FQuadTree> QuadTree;
+	TUniquePtr<TBarnesHutTree<ETreeBranchSize::QuadTree>> QuadTree;
 
 	/**
 	 * @brief Check & adjust load when this timer is fired, gather FPS data in frames between timer ticks.
@@ -100,6 +99,7 @@ public:
 	 * @param Coefficient Barnes Hut accuracy coefficient
 	 * @param MinimumBodyMass Minimum mass of bodies
 	 * @param MaximumBodyMass Maximum mass of bodies
+	 * @param bShouldAutoLoad True: try to spawn as many bodies as possible while maintaining a specific fps target
 	 */
 	virtual void InitializeDefaults(const TSubclassOf<ANiagaraActor>& Renderer, int NumStartingBodies, float Coefficient,
 		float MinimumBodyMass, float MaximumBodyMass, bool bShouldAutoLoad);
@@ -146,7 +146,7 @@ public:
 
 	virtual void BatchAndWaitBuildTree(float DeltaTime);
 	
-	virtual void CalculateBodyVelocity(float DeltaTime, FBodyDescriptor& Body, const FQuadTreeNode& RootNode);
+	virtual void CalculateBodyVelocity(float DeltaTime, FBodyDescriptor& Body, const TQuadTreeNode& RootNode);
 
 protected:
 	virtual void OnViewportResizedCallback(FViewport* Viewport, unsigned I);
@@ -155,7 +155,7 @@ protected:
 #pragma region DEBUG
 	virtual void TickDebug(float DeltaTime);
 
-	virtual void DebugDrawTreeBounds(float DeltaTime, FQuadTreeNode& Node);
+	virtual void DebugDrawTreeBounds(float DeltaTime, TQuadTreeNode& Node);
 
 	virtual void DebugDrawForceConnection(float DeltaTime, const FBodyDescriptor& Body1, const FBodyDescriptor& Body2, bool bIsPseudoBody = false);
 #pragma endregion 

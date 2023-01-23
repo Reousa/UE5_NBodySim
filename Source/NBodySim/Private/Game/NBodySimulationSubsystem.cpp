@@ -126,7 +126,7 @@ void UNBodySimulationSubsystem::StartSimulation()
 	NiagaraSystem = StaticCast<UNiagaraComponent*>(RendererActor->GetRootComponent());
 	NiagaraSystem->SetVariableFloat(FName("MaxMass"), MaxBodyMass);
 
-	QuadTree = MakeUnique<FQuadTree>(WorldBounds, NumStartBodies);
+	QuadTree = MakeUnique<TBarnesHutTree<ETreeBranchSize::QuadTree>>(WorldBounds, NumStartBodies);
 	AddBodies(NumStartBodies);
 
 	SetShouldSimulate(true);
@@ -149,7 +149,7 @@ void UNBodySimulationSubsystem::AdjustFrameLoad()
 
 	// Update number to spawn next tick and reset last period average frame time
 	// This can be improved and cleaned up a little
-	NumToSpawnNextTick = FMath::Min( FMath::CeilToInt(NumBodies() * PercentageMul * LerpFactor), 2000);
+	NumToSpawnNextTick = FMath::Min(FMath::CeilToInt(NumBodies() * PercentageMul * LerpFactor), 2000);
 	PeriodAverageFrameTime = 0;
 }
 
@@ -178,7 +178,6 @@ void UNBodySimulationSubsystem::UpdateRenderer()
 
 	UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector(NiagaraSystem, FName("ParticleData"),
 	                                                                 RenderDataArr);
-
 }
 
 // @TODO: This needs cleanup
@@ -196,17 +195,19 @@ void UNBodySimulationSubsystem::SimulateOneTick(const float DeltaTime)
 		NumToSpawnNextTick = 0;
 	}
 
+	// Ensure the bodies are actually warped before building the tree,
+	// as this can lead to a crash if they're outside bounds at the time of tree building.
+	for (auto& Body : Bodies)
+	{
+		Body.WarpWithinBounds(WorldBounds);
+	}
+	
 	// Rerun the tree,
 	BatchAndWaitBuildTree(DeltaTime);
 
 	TickDebug(DeltaTime);
 
 	BatchAndWaitBodyCalcTasks(DeltaTime);
-
-	for (auto& Body : Bodies)
-	{
-		Body.WarpWithinBounds(WorldBounds);
-	}
 
 	for (int i = 0; i < Bodies.Num(); i++)
 	{
@@ -298,7 +299,7 @@ void UNBodySimulationSubsystem::BatchAndWaitBuildTree(float DeltaTime)
 
 // @TODO: This needs cleanup
 void UNBodySimulationSubsystem::CalculateBodyVelocity(const float DeltaTime, FBodyDescriptor& Body,
-                                                      const FQuadTreeNode& RootNode)
+                                                      const TQuadTreeNode& RootNode)
 {
 	const bool bIsSameBody = RootNode.BodyDescriptor == Body;
 	if (!bIsSameBody)
@@ -328,9 +329,8 @@ void UNBodySimulationSubsystem::CalculateBodyVelocity(const float DeltaTime, FBo
 			else
 			{
 				// loop inner nodes
-				for (const FQuadTreeNode& Node : RootNode)
+				for (const TTreeNode<ETreeBranchSize::QuadTree>& Node : RootNode)
 					CalculateBodyVelocity(DeltaTime, Body, Node);
-				
 			}
 		}
 }
@@ -386,7 +386,7 @@ void UNBodySimulationSubsystem::TickDebug(float DeltaTime)
 }
 
 
-void UNBodySimulationSubsystem::DebugDrawTreeBounds(float DeltaTime, FQuadTreeNode& Node)
+void UNBodySimulationSubsystem::DebugDrawTreeBounds(float DeltaTime, TQuadTreeNode& Node)
 {
 #if !UE_BUILD_SHIPPING
 	if (!CVarDrawTreeBounds->GetBool())
@@ -405,7 +405,7 @@ void UNBodySimulationSubsystem::DebugDrawTreeBounds(float DeltaTime, FQuadTreeNo
 
 	if (Node.IsCluster())
 	{
-		for (FQuadTreeNode& SubNode : Node)
+		for (TQuadTreeNode& SubNode : Node)
 			DebugDrawTreeBounds(DeltaTime, SubNode);
 	}
 #endif

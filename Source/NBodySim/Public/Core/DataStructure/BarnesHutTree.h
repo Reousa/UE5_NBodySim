@@ -1,19 +1,24 @@
 #pragma once
-#include "QuadTreeNode.h"
+#include "TreeNode.h"
+
+typedef TTreeNode<ETreeBranchSize::QuadTree> TQuadTreeNode; 
+typedef TTreeNode<ETreeBranchSize::Octree> TOctreeNode; 
 
 /**
  * @brief Guaranteed to always have a root node.
  * These datastructures do need some clean up at this point as well..
+ * @TODO: Could probably use another pass at the templating
  */
-class FQuadTree
+template<int BranchSize>
+class TBarnesHutTree
 {
 private:
-	TArray<FQuadTreeNode> InternalNodesArr;
+	TArray<TTreeNode<BranchSize>> InternalNodesArr;
 
 	// If node bounds length is less than this, no new leaves will be created.
 	// This is used to avoid infinite recursion considering we have no collision detection.
 	// Nodes will still be updated, bodies will still have their masses taken into account for the sim.
-	// Currently calculated as 0.5% of the total horizontal space of the world bounds.
+	// Currently calculated to be 0.5% of the ortho cam width
 	// @TODO: Move this to a more configurable place
 	const float MinNodeSize;
 	
@@ -23,31 +28,31 @@ public:
 	 * @param WorldBounds World bounds to start the tree with
 	 * @param NumElements The amount of elements this tree expects to hold
 	 */
-	FQuadTree(const FQuadrantBounds WorldBounds, const int NumElements) : MinNodeSize(WorldBounds.HorizontalSize() * 0.005)
+	TBarnesHutTree(const FQuadrantBounds WorldBounds, const int NumElements) : MinNodeSize(WorldBounds.HorizontalSize() * 0.00005)
 	{
 		Reset(WorldBounds, NumElements);
 	}
 
-	FORCEINLINE operator FQuadTreeNode&() { return GetRootNode(); }
-	FORCEINLINE operator FQuadTreeNode*() { return &GetRootNode(); }
+	FORCEINLINE operator TTreeNode<BranchSize>&() { return GetRootNode(); }
+	FORCEINLINE operator TTreeNode<BranchSize>*() { return &GetRootNode(); }
 
-	FORCEINLINE FQuadTreeNode::FIterator begin() { return GetRootNode().begin(); }
-	FORCEINLINE FQuadTreeNode::FIterator end() { return GetRootNode().end(); }
+	FORCEINLINE typename TTreeNode<BranchSize>::FIterator begin() { return GetRootNode().begin(); }
+	FORCEINLINE typename TTreeNode<BranchSize>::FIterator end() { return GetRootNode().end(); }
 
 	FORCEINLINE void Reset(FQuadrantBounds WorldBounds)
 	{
 		InternalNodesArr.Reset();
-		InternalNodesArr.Insert(FQuadTreeNode(WorldBounds), 0);
+		InternalNodesArr.Insert(TTreeNode(WorldBounds), 0);
 	}
 
 	FORCEINLINE void Reset(FQuadrantBounds WorldBounds, const int NumElements)
 	{
-		InternalNodesArr.Reset((QuadTreeBranchSize) * NumElements + 1);
-		InternalNodesArr.Insert(FQuadTreeNode(WorldBounds), 0);
+		InternalNodesArr.Reset(BranchSize * NumElements + 1);
+		InternalNodesArr.Insert(TTreeNode<BranchSize>(WorldBounds), 0);
 	}
 
 
-	FORCEINLINE FQuadTreeNode& GetRootNode() { return InternalNodesArr[0]; }
+	FORCEINLINE TTreeNode<BranchSize>& GetRootNode() { return InternalNodesArr[0]; }
 
 	FORCEINLINE bool Insert(const FBodyDescriptor& Body)
 	{
@@ -55,8 +60,8 @@ public:
 	}
 
 private:
-	void UpdateNodeMass(FQuadTreeNode& Node, const FBodyDescriptor& Body);
-	bool InsertInternal(FQuadTreeNode& Node, const FBodyDescriptor& Body);
+	void UpdateNodeMass(TTreeNode<BranchSize>& Node, const FBodyDescriptor& Body);
+	bool InsertInternal(TTreeNode<BranchSize>& Node, const FBodyDescriptor& Body);
 	
 	/**
 	 * @brief Attempts to pool a new node from the existing array, or add a new node (Expanding the array) if
@@ -64,7 +69,7 @@ private:
 	 * @param Bounds Bounds to initialize the node with
 	 * @return 
 	 */
-	FQuadTreeNode& MakeNewNode(const FQuadrantBounds& Bounds);
+	TTreeNode<BranchSize>& MakeNewNode(const FQuadrantBounds& Bounds);
 
 	/**
 	 * @brief Transforms a node from singleton to cluster
@@ -72,10 +77,11 @@ private:
 	 * @param Node The node to upgrade from singleton to cluster
 	 * @return The body that existed inside the node pre-transform
 	 */
-	FBodyDescriptor MakeClusterNode(FQuadTreeNode& Node);
+	FBodyDescriptor MakeClusterNode(TTreeNode<BranchSize>& Node);
 };
 
-inline void FQuadTree::UpdateNodeMass(FQuadTreeNode& Node, const FBodyDescriptor& Body)
+template<int BranchSize>
+void TBarnesHutTree<BranchSize>::UpdateNodeMass(TTreeNode<BranchSize>& Node, const FBodyDescriptor& Body)
 {
 	if(Node.IsCluster())
 	{
@@ -95,8 +101,8 @@ inline void FQuadTree::UpdateNodeMass(FQuadTreeNode& Node, const FBodyDescriptor
 		Node.BodyDescriptor.Mass = Body.Mass;
 	}
 }
-
-inline bool FQuadTree::InsertInternal(FQuadTreeNode& Node, const FBodyDescriptor& Body)
+template<int BranchSize>
+bool TBarnesHutTree<BranchSize>::InsertInternal(TTreeNode<BranchSize>& Node, const FBodyDescriptor& Body)
 {
 	check(Node.NodeBounds.IsWithinBounds(Body.Location));
 
@@ -137,25 +143,27 @@ inline bool FQuadTree::InsertInternal(FQuadTreeNode& Node, const FBodyDescriptor
 
 			return bHasInsertedExistingBody && bHasInsertedNewBody;
 		}
+	default:
+		return false;
 	}
-	return false;
 }
-
-inline FQuadTreeNode& FQuadTree::MakeNewNode(const FQuadrantBounds& Bounds)
+template<int BranchSize>
+TTreeNode<BranchSize>& TBarnesHutTree<BranchSize>::MakeNewNode(const FQuadrantBounds& Bounds)
 {
-	const int Index = InternalNodesArr.Add(FQuadTreeNode(Bounds));
+	const int Index = InternalNodesArr.Add(TTreeNode<BranchSize>(Bounds));
 	return InternalNodesArr[Index];
 }
 
 // @TODO: Cleanup
-inline FBodyDescriptor FQuadTree::MakeClusterNode(FQuadTreeNode& Node)
+template<int BranchSize>
+FBodyDescriptor TBarnesHutTree<BranchSize>::MakeClusterNode(TTreeNode<BranchSize>& Node)
 {
 	// Create and insert a new node in the internal array for each quadrant
 	// Then add them to the node as leaves
-	for (int QuadIndex = 0; QuadIndex < QuadTreeBranchSize; QuadIndex++)
+	for (int QuadIndex = 0; QuadIndex < BranchSize; QuadIndex++)
 	{
 		const FQuadrantBounds Bounds = Node.NodeBounds.GetQuadrantBounds(QuadIndex);
-		FQuadTreeNode& NewNode = MakeNewNode(Bounds);
+		TTreeNode<BranchSize>& NewNode = MakeNewNode(Bounds);
 		Node.InsertLeaf(QuadIndex, &NewNode);
 	}
 
