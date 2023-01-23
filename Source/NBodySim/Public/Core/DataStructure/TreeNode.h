@@ -6,7 +6,7 @@
 #include "Core/Threading/FAtomicMutex.h"
 #include "Core/Threading/FAtomicScopeLock.h"
 
-class FQuadTree;
+class FBarnesHutTree;
 class FQuadTreeNodeIter;
 
 enum class ENodeType : uint8
@@ -16,24 +16,29 @@ enum class ENodeType : uint8
 	Singleton
 };
 
-constexpr int32 QuadTreeBranchSize = 4;
+enum ETreeBranchSize
+{
+	QuadTree = 4,
+	Octree = 6
+};
 
 /**
  * @brief Barnes Hut algorithm implementation specific QuadTree. This is an extension of FQuadTreeNode that includes
  *  more logic and per-node contiguous allocation behavior.
  */
-
-class alignas(32) FQuadTreeNode
+template<int BranchSize>
+class alignas(32) TTreeNode
 {
-	friend class FQuadTree;
+	template<int>
+	friend class TBarnesHutTree;
 
 public:
 	class FIterator
 	{
-		friend class FQuadTreeNode;
+		friend class TTreeNode;
 
 	private:
-		explicit FIterator(const FQuadTreeNode* ParentNode, const int Index = 0):
+		explicit FIterator(const TTreeNode* ParentNode, const int Index = 0):
 			Index(Index),
 			ParentNode(ParentNode)
 		{
@@ -44,8 +49,8 @@ public:
 	public:
 		FIterator() = delete;
 
-		FORCEINLINE FQuadTreeNode& operator*() const { return ParentNode->GetLeaf(Index); }
-		FORCEINLINE FQuadTreeNode* operator->() const { return &ParentNode->GetLeaf(Index); }
+		FORCEINLINE TTreeNode& operator*() const { return ParentNode->GetLeaf(Index); }
+		FORCEINLINE TTreeNode* operator->() const { return &ParentNode->GetLeaf(Index); }
 
 		FORCEINLINE FIterator& operator++()
 		{
@@ -81,7 +86,7 @@ public:
 
 	private:
 		int Index;
-		const FQuadTreeNode* ParentNode;
+		const TTreeNode* ParentNode;
 	};
 
 	FBodyDescriptor BodyDescriptor;
@@ -89,46 +94,46 @@ public:
 	ENodeType NodeType;
 
 private:
-	TArray<FQuadTreeNode*, TFixedAllocator<QuadTreeBranchSize>> Leaves;
+	TArray<TTreeNode*, TFixedAllocator<BranchSize>> Leaves;
 	FAtomicMutex Mutex;
 
-	explicit FQuadTreeNode(const FQuadrantBounds NodeBounds) :
+	explicit TTreeNode(const FQuadrantBounds NodeBounds) :
 		NodeBounds(NodeBounds),
 		NodeType(ENodeType::Empty)
 	{
-		Leaves.Init(nullptr, QuadTreeBranchSize);
+		Leaves.Init(nullptr, BranchSize);
 	}
 
 public:
-	FQuadTreeNode(FQuadTreeNode&& Other) noexcept
+	TTreeNode(TTreeNode&& Other) noexcept
 	{
 		FAtomicScopeLock(Other.Mutex);
 		BodyDescriptor = Other.BodyDescriptor;
 		NodeBounds = Other.NodeBounds;
 		NodeType = Other.NodeType;
-		Leaves.Init(nullptr, QuadTreeBranchSize);
+		Leaves.Init(nullptr, BranchSize);
 	}
 
 private:
-	FORCEINLINE FQuadTreeNode& GetLeaf(const EQuadrantLocation Location) const
+	FORCEINLINE TTreeNode& GetLeaf(const EQuadrantLocation Location) const
 	{
 		return *Leaves[StaticCast<int>(Location)];
 	}
 
-	FORCEINLINE FQuadTreeNode& GetLeaf(const int Location) const
+	FORCEINLINE TTreeNode& GetLeaf(const int Location) const
 	{
 		check(Location < Leaves.Num() && Location >= 0);
-		check(Leaves[Location])
+		check(Leaves[Location]);
 		return *Leaves[Location];
 	}
 
-	FORCEINLINE void InsertLeaf(int Location, FQuadTreeNode* Node)
+	void InsertLeaf(int Location, TTreeNode* Node)
 	{
-		check(Leaves.Num() == QuadTreeBranchSize);
+		check(Leaves.Num() == BranchSize);
 		Leaves[Location] = Node;
 	}
 
-	FORCEINLINE void InsertLeaf(EQuadrantLocation Location, FQuadTreeNode* Node)
+	void InsertLeaf(EQuadrantLocation Location, TTreeNode* Node)
 	{
 		InsertLeaf(StaticCast<int>(Location), Node);
 	}
@@ -141,5 +146,5 @@ public:
 
 	FORCEINLINE FIterator begin() const { return FIterator(this); }
 
-	FORCEINLINE FIterator end() const { return FIterator(this, QuadTreeBranchSize); }
+	FORCEINLINE FIterator end() const { return FIterator(this, BranchSize); }
 };
