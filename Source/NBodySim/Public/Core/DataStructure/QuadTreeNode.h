@@ -3,6 +3,9 @@
 #include "BodyDescriptor.h"
 #include "QuadrantBounds.h"
 
+#include "Core/Threading/FAtomicMutex.h"
+#include "Core/Threading/FAtomicScopeLock.h"
+
 class FQuadTree;
 class FQuadTreeNodeIter;
 
@@ -16,7 +19,8 @@ enum class ENodeType : uint8
 constexpr int32 QuadTreeBranchSize = 4;
 
 /**
- * @brief Barnes Hut algorithm implementation specific QuadTree. Every node in the tree is also a tree.
+ * @brief Barnes Hut algorithm implementation specific QuadTree. This is an extension of FQuadTreeNode that includes
+ *  more logic and per-node contiguous allocation behavior.
  */
 
 class alignas(32) FQuadTreeNode
@@ -27,6 +31,7 @@ public:
 	class FIterator
 	{
 		friend class FQuadTreeNode;
+
 	private:
 		explicit FIterator(const FQuadTreeNode* ParentNode, const int Index = 0):
 			Index(Index),
@@ -85,6 +90,7 @@ public:
 
 private:
 	TArray<FQuadTreeNode*, TFixedAllocator<QuadTreeBranchSize>> Leaves;
+	FAtomicMutex Mutex;
 
 	explicit FQuadTreeNode(const FQuadrantBounds NodeBounds) :
 		NodeBounds(NodeBounds),
@@ -93,6 +99,17 @@ private:
 		Leaves.Init(nullptr, QuadTreeBranchSize);
 	}
 
+public:
+	FQuadTreeNode(FQuadTreeNode&& Other) noexcept
+	{
+		FAtomicScopeLock(Other.Mutex);
+		BodyDescriptor = Other.BodyDescriptor;
+		NodeBounds = Other.NodeBounds;
+		NodeType = Other.NodeType;
+		Leaves.Init(nullptr, QuadTreeBranchSize);
+	}
+
+private:
 	FORCEINLINE FQuadTreeNode& GetLeaf(const EQuadrantLocation Location) const
 	{
 		return *Leaves[StaticCast<int>(Location)];
@@ -100,27 +117,20 @@ private:
 
 	FORCEINLINE FQuadTreeNode& GetLeaf(const int Location) const
 	{
-		checkSlow(Location < Leaves.Num() && Location >= 0);
+		check(Location < Leaves.Num() && Location >= 0);
+		check(Leaves[Location])
 		return *Leaves[Location];
 	}
 
 	FORCEINLINE void InsertLeaf(int Location, FQuadTreeNode* Node)
 	{
-		if (Leaves.IsValidIndex(Location) && Location < QuadTreeBranchSize)
-			Leaves[Location] = Node;
+		check(Leaves.Num() == QuadTreeBranchSize);
+		Leaves[Location] = Node;
 	}
 
 	FORCEINLINE void InsertLeaf(EQuadrantLocation Location, FQuadTreeNode* Node)
 	{
 		InsertLeaf(StaticCast<int>(Location), Node);
-	}
-
-	void Reset(FQuadrantBounds Bounds)
-	{
-		// Not resetting Leaves as to not destroy objects - the addresses will be reset when new leaves replace them 
-		NodeType = ENodeType::Empty;
-		NodeBounds = Bounds;
-		BodyDescriptor = FBodyDescriptor();
 	}
 
 public:
