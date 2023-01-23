@@ -56,7 +56,7 @@ public:
 
 	FORCEINLINE bool IsWithinBounds(const FVector2f Location) const
 	{
-		return Location.X > Left && Location.X < Right && Location.Y > Top && Location.Y < Bottom;
+		return Location.X >= Left && Location.X <= Right && Location.Y >= Top && Location.Y <= Bottom;
 	}
 
 	FORCEINLINE FVector2f Midpoint() const { return FVector2f((Left + Right) * 0.5, (Top + Bottom) * 0.5); }
@@ -90,8 +90,8 @@ public:
 		const FVector2f Center = Midpoint();
 
 		// Left
-		if (Location.X < Center.X)
-			if (Location.Y < Center.Y)
+		if (Location.X <= Center.X)
+			if (Location.Y <= Center.Y)
 				return EQuadrantLocation::TopLeft;
 			else
 				return EQuadrantLocation::BottomLeft;
@@ -102,6 +102,8 @@ public:
 			else
 				return EQuadrantLocation::BottomRight;
 
+		// Should be unreachable.
+		check(false)
 		return EQuadrantLocation::Outside;
 	}
 };
