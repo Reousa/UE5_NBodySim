@@ -28,6 +28,8 @@ public:
 		FVector4f Vec;
 	};
 
+	float SplitBy = 4.f;
+
 	FQuadrantBounds(): FQuadrantBounds(0)
 	{
 	}

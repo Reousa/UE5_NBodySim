@@ -6,7 +6,6 @@
 #include "DrawDebugHelpers.h"
 #include "NiagaraComponent.h"
 #include "NiagaraDataInterfaceArrayFunctionLibrary.h"
-#include "NiagaraFunctionLibrary.h"
 
 #pragma region Debug CVars
 /**
@@ -126,7 +125,7 @@ void UNBodySimulationSubsystem::StartSimulation()
 	NiagaraSystem = StaticCast<UNiagaraComponent*>(RendererActor->GetRootComponent());
 	NiagaraSystem->SetVariableFloat(FName("MaxMass"), MaxBodyMass);
 
-	QuadTree = MakeUnique<TBarnesHutTree<ETreeBranchSize::QuadTree>>(WorldBounds, NumStartBodies);
+	QuadTree = MakeUnique<TTreeNode<ETreeBranchSize::QuadTree>>(WorldBounds);
 	AddBodies(NumStartBodies);
 
 	SetShouldSimulate(true);
@@ -155,7 +154,6 @@ void UNBodySimulationSubsystem::AdjustFrameLoad()
 
 void UNBodySimulationSubsystem::UpdateStats(const float DeltaTime)
 {
-	SET_DWORD_STAT(NBodySim_NumSpawnedBodies, NumBodies())
 	PeriodAverageFrameTime = (PeriodAverageFrameTime + DeltaTime * 1000) * 0.5;
 }
 
@@ -201,7 +199,7 @@ void UNBodySimulationSubsystem::SimulateOneTick(const float DeltaTime)
 	{
 		Body.WarpWithinBounds(WorldBounds);
 	}
-	
+
 	// Rerun the tree,
 	BatchAndWaitBuildTree(DeltaTime);
 
@@ -224,26 +222,20 @@ void UNBodySimulationSubsystem::SimulateOneTick(const float DeltaTime)
 	}
 }
 
+// @TODO: Clean this up
 void UNBodySimulationSubsystem::BatchAndWaitBodyCalcTasks(float DeltaTime)
 {
+	DECLARE_SCOPE_CYCLE_COUNTER(TEXT("BeginBatchBodyCalc"), STAT_BeginBatchBodyCalc, STATGROUP_NBodySim)
 	TFunction<void (int Start, int End)> Func = TFunction<void (int, int)>(
 		[DeltaTime,this](int StartIndex, int EndIndex)
 		{
-			for (int i = StartIndex; i < EndIndex; i++)
-			{
-				FBodyDescriptor& Body = Bodies[i];
-
-				// Reset calc cost for next frame
-				Body.SimCost = 0;
-				this->CalculateBodyVelocity(DeltaTime, Body, *QuadTree);
-				Body.Location += Body.Velocity * DeltaTime;
-				TotalSimulationCost += Body.SimCost;
-			}
 		});
 
 	const int NumThreads = FTaskGraphInterface::Get().GetNumBackgroundThreads();
 
-	const int SimulationCostPerThread = TotalSimulationCost / NumThreads;
+	const int SimulationCostPerThread = (TotalSimulationCost > 0
+		                                    ? TotalSimulationCost / NumThreads
+		                                    : NumBodies() / NumThreads);
 	// Reset total cost to be updated in the next run
 	TotalSimulationCost = 0;
 
@@ -254,25 +246,31 @@ void UNBodySimulationSubsystem::BatchAndWaitBodyCalcTasks(float DeltaTime)
 	int TaskIndex = 0;
 
 	TArray<TFuture<void>> TaskFutures;
-	for (FBodyDescriptor& Body : Bodies)
+	for (const FBodyDescriptor& Body : Bodies)
 	{
 		CurrentCostStep += Body.SimCost;
 		++EndIndex;
 
-		// Edge cases, should be cleaned up into something better
-		const bool bIsLastTask = TaskIndex == NumThreads - 1;
-		const bool bIsLastBody = &Body == &Bodies.Last();
-		if (bIsLastBody || bIsLastTask)
-		{
-			TaskFutures.Add(
-				Async(EAsyncExecution::ThreadPool, [=]() { Func(StartIndex, Bodies.Num()); })
-			);
-			break;
-		}
 		if (CurrentCostStep > SimulationCostPerThread)
 		{
 			TaskFutures.Add(
-				Async(EAsyncExecution::ThreadPool, [=]() { Func(StartIndex, EndIndex); })
+				AsyncPool(*GThreadPool,
+				          [StartIndex, EndIndex, DeltaTime, this]()
+				          {
+					          for (int i = StartIndex; i < EndIndex; i++)
+					          {
+						          DECLARE_SCOPE_CYCLE_COUNTER(TEXT("BeginBodyCalc"), STAT_BeginBodyCalc,
+						                                      STATGROUP_NBodySim)
+						          FBodyDescriptor& BodyDescriptor = Bodies[i];
+
+						          // Reset calc cost for next frame
+						          BodyDescriptor.SimCost = 0;
+						          CalculateBodyVelocity(DeltaTime, BodyDescriptor, *QuadTree);
+						          BodyDescriptor.Location += BodyDescriptor.Velocity * DeltaTime;
+						          TotalSimulationCost += BodyDescriptor.SimCost;
+					          }
+				          },
+				          nullptr, EQueuedWorkPriority::Highest)
 			);
 
 			StartIndex = EndIndex;
@@ -280,6 +278,11 @@ void UNBodySimulationSubsystem::BatchAndWaitBodyCalcTasks(float DeltaTime)
 			++TaskIndex;
 		}
 	}
+	DECLARE_SCOPE_CYCLE_COUNTER(TEXT("RemainderBodyCalc"), STAT_RemainderBodyCalc, STATGROUP_NBodySim)
+	// Run remainder on game thread.
+	Func(StartIndex, Bodies.Num());
+
+	DECLARE_SCOPE_CYCLE_COUNTER(TEXT("WaitCalcTasks"), STAT_WaitCalcTasks, STATGROUP_NBodySim)
 
 	for (auto& Future : TaskFutures)
 		Future.Wait();
@@ -289,12 +292,49 @@ void UNBodySimulationSubsystem::BatchAndWaitBodyCalcTasks(float DeltaTime)
 // own exclusive quad to populate and combining them at the end
 void UNBodySimulationSubsystem::BatchAndWaitBuildTree(float DeltaTime)
 {
-	QuadTree->Reset(WorldBounds, NumBodies());
-
-	for (auto& BodyDescriptor : Bodies)
+	DECLARE_SCOPE_CYCLE_COUNTER(TEXT("BeginBuildTree"), STAT_BeginBuildTree, STATGROUP_NBodySim)
+	QuadTree->Reset(WorldBounds);
+	Bodies.Sort([](const FBodyDescriptor& A, const FBodyDescriptor B)
 	{
-		QuadTree->Insert(BodyDescriptor);
+		return A.Location.ComponentwiseAllLessThan(B.Location);
+	});
+
+	const int NumThreads = FTaskGraphInterface::Get().GetNumBackgroundThreads();
+
+	const int NumBodiesPerThread = NumBodies() / NumThreads;
+
+	TArray<TFuture<void>> TaskFutures;
+	for (int i = 0; i < NumThreads; i++)
+	{
+		TaskFutures.Add(
+			AsyncPool(*GThreadPool,
+			          [i, NumThreads, NumBodiesPerThread, this]()
+			          {
+				          DECLARE_SCOPE_CYCLE_COUNTER(TEXT("BeginBuildTreeTask"), STAT_BeginBuildTreeTask,
+				                                      STATGROUP_NBodySim)
+
+				          const int StartIndex = i * NumBodiesPerThread;
+				          int EndIndex = (i + 1) * NumBodiesPerThread;
+				          if (i == NumThreads - 1)
+					          EndIndex = NumBodies();
+
+				          for (int j = StartIndex; j < EndIndex; j++)
+				          {
+					          QuadTree->Insert(Bodies[j]);
+				          }
+			          },
+			          nullptr, EQueuedWorkPriority::Highest)
+		);
 	}
+
+	DECLARE_SCOPE_CYCLE_COUNTER(TEXT("WaitTreeTasks"), STAT_WaitTreeTasks, STATGROUP_NBodySim)
+	for (auto& Future : TaskFutures)
+		Future.Wait();
+
+	// for (const FBodyDescriptor& BodyDescriptor : Bodies)
+	// {
+	// 	QuadTree->Insert(BodyDescriptor);
+	// }
 }
 
 // @TODO: This needs cleanup

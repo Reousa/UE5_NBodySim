@@ -4,17 +4,16 @@
 
 #include "CoreMinimal.h"
 #include "NiagaraActor.h"
-#include "NiagaraSystem.h"
 
 #include "Subsystems/WorldSubsystem.h"
 #include "Camera/CameraActor.h"
 #include "Core/DataStructure/QuadrantBounds.h"
-#include "Core/DataStructure/BarnesHutTree.h"
+#include "Core/DataStructure/TreeNode.h"
 
 #include "NBodySimulationSubsystem.generated.h"
 
-DECLARE_STATS_GROUP(TEXT("Threading"), STATGROUP_NBodySim, STATCAT_Advanced);
-DECLARE_DWORD_COUNTER_STAT(TEXT("Num Spawned Bodies"), NBodySim_NumSpawnedBodies, STATGROUP_NBodySim)
+DECLARE_STATS_GROUP(TEXT("NBodySim"), STATGROUP_NBodySim, STATCAT_Advanced);
+
 /**
  * 
  */
@@ -38,7 +37,7 @@ protected:
 	// Array containing (X, Y): Position & (Z): Mass
 	TArray<FVector> RenderDataArr;	
 	
-	TUniquePtr<TBarnesHutTree<ETreeBranchSize::QuadTree>> QuadTree;
+	TUniquePtr<TTreeNode<ETreeBranchSize::QuadTree>> QuadTree;
 
 	/**
 	 * @brief Check & adjust load when this timer is fired, gather FPS data in frames between timer ticks.

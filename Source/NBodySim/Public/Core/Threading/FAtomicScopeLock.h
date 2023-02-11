@@ -1,5 +1,5 @@
 ﻿#pragma once
-#include "FAtomicMutex.h"
+#include "FAtomicReadWriteLock.h"
 
 /**
  * @brief Scoped lock that uses FAtomicMutex
@@ -7,17 +7,17 @@
 class FAtomicScopeLock
 {
 private:
-	FAtomicMutex& Mutex;
+	FAtomicReadWriteLock& Mutex;
 	
 public:
-	FORCEINLINE explicit FAtomicScopeLock(FAtomicMutex& InMutex) noexcept :
+	FORCEINLINE explicit FAtomicScopeLock(FAtomicReadWriteLock& InMutex) :
 	Mutex(InMutex)
 	{
-		Mutex.SpinWaitLock();
+		Mutex.SpinWaitWriteLock();
 	}
 
 	FORCEINLINE ~FAtomicScopeLock() noexcept
 	{
-		Mutex.Unlock();
+		Mutex.WriteUnlock();
 	}
 };

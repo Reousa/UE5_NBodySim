@@ -13,7 +13,7 @@ public:
 	// Calculation cost, value used for threading
 	float SimCost;
 
-	FBodyDescriptor(const FVector2f Location, const float Mass): Location(Location), Velocity(0), Mass(Mass), SimCost(0)
+	FBodyDescriptor(const FVector2f Location, const float Mass): Location(Location), Velocity(0), Mass(Mass), SimCost(1)
 	{
 	}
 	
